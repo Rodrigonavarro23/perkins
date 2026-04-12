@@ -5,11 +5,20 @@ Governed by: docs/tdrs/perkins-mcp-server.md, docs/tdrs/perkins-agent-orchestrat
 from __future__ import annotations
 
 import asyncio
+import datetime
+import json
+import logging
+import subprocess
+from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from perkins.config import PerkinsConfig
+from perkins.models import FlowState, ProgressEntry
+from perkins.session import _atomic_write
+
+logger = logging.getLogger(__name__)
 
 
 class MasterOrchestrator:
@@ -109,14 +118,82 @@ class MasterOrchestrator:
 
         return result.get("answer", "")
 
-    # ── report_progress (Session 2) ───────────────────────────────────────────
+    # ── report_progress ───────────────────────────────────────────────────────
 
     async def _report_progress(self, issue_id: str, message: str) -> str:
-        # Implemented in Session 2
-        raise NotImplementedError("report_progress — implemented in Session 2")
+        """
+        Append a timestamped progress entry to flows/{issue_id}.json.
+        Write is atomic via .tmp intermediate file (perkins-serialization TDR).
+        """
+        state_dir = Path(self._config.session.state_dir)
+        session_dir = state_dir / "sessions" / self._session_id
+        flow_path = session_dir / "flows" / f"{issue_id}.json"
 
-    # ── get_task_context (Session 2) ──────────────────────────────────────────
+        flow = FlowState.model_validate_json(flow_path.read_text(encoding="utf-8"))
+        flow.progress_entries.append(ProgressEntry(
+            timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            message=message,
+        ))
+        _atomic_write(flow_path, flow.model_dump_json(indent=2))
+        return "ok"
+
+    # ── get_task_context ──────────────────────────────────────────────────────
 
     async def _get_task_context(self, issue_id: str) -> dict:
-        # Implemented in Session 2
-        raise NotImplementedError("get_task_context — implemented in Session 2")
+        """
+        Return {issue_body, flow_state, compaction_snapshot} for the given issue.
+
+        issue_body: read from flow JSON cache; if absent, fetch via gh CLI and cache.
+        On gh CLI failure: log to recovery.log, return issue_body=None (server continues).
+        compaction_snapshot: content of most recent snapshot-*.md in compaction/; None if absent.
+        """
+        state_dir = Path(self._config.session.state_dir)
+        session_dir = state_dir / "sessions" / self._session_id
+        flow_path = session_dir / "flows" / f"{issue_id}.json"
+
+        flow = FlowState.model_validate_json(flow_path.read_text(encoding="utf-8"))
+
+        issue_body = flow.issue_body
+        if issue_body is None:
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["gh", "issue", "view", issue_id, "--json", "body"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                data = json.loads(result.stdout)
+                issue_body = data.get("body", "")
+                flow.issue_body = issue_body
+                _atomic_write(flow_path, flow.model_dump_json(indent=2))
+            except subprocess.CalledProcessError as exc:
+                stderr = exc.stderr.strip() if exc.stderr else ""
+                logger.error("gh issue view %s failed: %s", issue_id, stderr)
+                _append_to_recovery_log(
+                    session_dir,
+                    f"gh issue view {issue_id} failed: {stderr}",
+                )
+                issue_body = None
+
+        # Compaction snapshot: most recent snapshot-*.md (alphabetical sort = chronological)
+        compaction_dir = session_dir / "compaction"
+        compaction_snapshot: str | None = None
+        if compaction_dir.exists():
+            snapshots = sorted(compaction_dir.glob("snapshot-*.md"))
+            if snapshots:
+                compaction_snapshot = snapshots[-1].read_text(encoding="utf-8")
+
+        return {
+            "issue_body": issue_body,
+            "flow_state": flow.model_dump(),
+            "compaction_snapshot": compaction_snapshot,
+        }
+
+
+def _append_to_recovery_log(session_dir: Path, message: str) -> None:
+    """Append an error line to recovery.log (perkins-github-operations TDR error handling)."""
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    recovery_log = session_dir / "recovery.log"
+    with open(recovery_log, "a", encoding="utf-8") as f:
+        f.write(f"{timestamp} ERROR: {message}\n")
