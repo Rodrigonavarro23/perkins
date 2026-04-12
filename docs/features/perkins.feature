@@ -117,7 +117,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
   # ── DEV SUB-AGENT LIFECYCLE ────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Master spawns a dev sub-agent for a dispatched issue
     Given a running Perkins session
     And issue #42 has been dispatched to the Master
@@ -141,7 +142,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
     And the flow status for issue #55 is set to "queued"
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Dev sub-agent completes successfully and opens a PR
     Given a dev sub-agent running for issue #42
     When the dev sub-agent exits with code 0 and a PR has been opened on branch perkins/issue-42
@@ -151,7 +153,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:edge
   # why: perkins-subprocess-management TDR prohibits automatic retry on non-zero exit; human decision is required
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Dev sub-agent exits with non-zero code and awaits human decision
     Given a dev sub-agent running for issue #42
     When the dev sub-agent process exits with a non-zero exit code
