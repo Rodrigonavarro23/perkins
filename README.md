@@ -16,13 +16,7 @@ Perkins is an autonomous multi-agent development system that orchestrates AI dev
 ## Installation
 
 ```bash
-pip install git+https://github.com/Rodrigonavarro23/perkins
-```
-
-Or with [uv](https://github.com/astral-sh/uv):
-
-```bash
-uv add git+https://github.com/Rodrigonavarro23/perkins
+uv tool install git+https://github.com/Rodrigonavarro23/perkins
 ```
 
 ## Usage
