@@ -30,12 +30,19 @@ class SessionStatus(str, Enum):
     interrupted = "interrupted"
 
 
+class ProgressEntry(BaseModel):
+    timestamp: str
+    message: str
+
+
 class FlowState(BaseModel):
     issue_id: str
     status: FlowStatus = FlowStatus.dispatched
     pr_url: Optional[str] = None
     created_at: str = Field(default_factory=_utcnow_iso)
     updated_at: str = Field(default_factory=_utcnow_iso)
+    progress_entries: list[ProgressEntry] = Field(default_factory=list)
+    issue_body: Optional[str] = None
 
 
 class SessionState(BaseModel):

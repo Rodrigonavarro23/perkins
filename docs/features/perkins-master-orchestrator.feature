@@ -51,7 +51,8 @@ Feature: Perkins Master Orchestrator
     And interrupt is not called
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: report_progress tool appends entry to flow JSON atomically
     Given the MCP server is running and a dev sub-agent calls report_progress with issue_id "42" and message "All tests passing"
     When the tool handler processes the call
@@ -59,7 +60,8 @@ Feature: Perkins Master Orchestrator
     And the write is performed atomically via a .tmp intermediate file
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: get_task_context returns cached issue body, flow state, and latest compaction snapshot
     Given the MCP server is running, flows/42.json contains a cached issue_body, and a compaction snapshot exists
     When a dev sub-agent calls get_task_context with issue_id "42"
@@ -67,7 +69,8 @@ Feature: Perkins Master Orchestrator
 
   @type:edge
   # why: TDR requires caching issue body via gh CLI when not present in flow JSON — fetch-and-cache must happen transparently
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: get_task_context fetches issue body via gh CLI when not cached
     Given the MCP server is running and flows/42.json does not have an issue_body field
     When a dev sub-agent calls get_task_context with issue_id "42"
@@ -77,7 +80,8 @@ Feature: Perkins Master Orchestrator
 
   @type:edge
   # why: perkins-github-operations TDR requires gh CLI failures to be logged and handled gracefully — the tool must not crash the MCP server
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: get_task_context returns partial context when gh CLI fails to fetch issue body
     Given the MCP server is running, flows/42.json has no issue_body, and the gh CLI returns a non-zero exit code
     When a dev sub-agent calls get_task_context with issue_id "42"
