@@ -165,7 +165,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
   # ── HUMAN ESCALATION (ask_master) ──────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Master answers a dev sub-agent question from loaded context
     Given a dev sub-agent working on issue #38
     When the dev sub-agent calls ask_master with a question answerable from the Master's loaded cliplin context
@@ -173,7 +174,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
     And the flow continues without interruption
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Master escalates an unanswerable question to the human via the issue thread
     Given a dev sub-agent working on issue #38
     When the dev sub-agent calls ask_master with a question the Master cannot answer from context
@@ -184,7 +186,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:complementary
   # why: completes the escalation cycle — without the resume path the interrupt would block indefinitely
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Human responds on the issue thread and Master resumes the dev sub-agent
     Given flow #38 is in "waiting_human" state with a question posted on the issue thread
     When the Answer Agent detects a human response on the issue thread
