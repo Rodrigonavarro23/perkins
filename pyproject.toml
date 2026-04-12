@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "perkins"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "typer[all]>=0.12.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    # Runtime deps installed externally (not on PyPI):
+    #   cliplin>=0.1.0           — validated via shutil.which("cliplin") at startup
+    #   deepagents>=0.1.0        — agent orchestration (LangGraph-based)
+    #   langchain-anthropic>=0.3.0
+    #   langgraph-checkpoint-sqlite
+    #   mcp>=1.0.0               — perkins-master MCP server
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+perkins = "perkins.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/perkins"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
