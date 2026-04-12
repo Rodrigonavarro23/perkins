@@ -49,6 +49,7 @@ def _start_background_session(config: PerkinsConfig) -> str:
 @app.command()
 def start(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be processed without starting."),
+    watch: bool = typer.Option(False, "--watch", help="After starting, enter chat --watch mode immediately."),
 ) -> None:
     """Start a Perkins session. Returns a session ID immediately."""
     try:
@@ -82,6 +83,11 @@ def start(
     typer.echo(f"Perkins session started.")
     typer.echo(f"SESSION_ID: {session_id}")
     typer.echo(f"Attach with: perkins chat {session_id}")
+
+    if watch:
+        import asyncio
+        from perkins.chat_client import run_chat
+        asyncio.run(run_chat(session_id, watch=True))
 
 
 @app.command()
