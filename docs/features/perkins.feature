@@ -24,7 +24,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
   # ── SESSION LIFECYCLE ──────────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-11
   Scenario: Starting a Perkins session returns a session ID immediately
     Given a cliplin-initialized repository with a valid perkins.yaml
     And all startup validation checks pass (cliplin, gh CLI, auth, cliplin-acd)
@@ -67,7 +68,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
     And the process exits with code 1
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-11
   Scenario: Stopping a running session gracefully persists all flow states
     Given a running Perkins session with ID "perk_a3f9c2" and 2 active flows
     When the developer runs `perkins stop perk_a3f9c2`
@@ -91,7 +93,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:edge
   # why: duplicate prevention is an explicit responsibility of the Watcher per the intent; without it the Master would spawn two dev agents for the same issue
-  @status:new
+  @status:implemented
+  @changed:2026-04-11
   Scenario: Watcher skips an issue already in the active flow registry
     Given a running Perkins session with issue #42 already in the active flow registry
     When the Watcher polls GitHub and issue #42 appears in the results again

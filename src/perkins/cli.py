@@ -12,6 +12,7 @@ import yaml
 from pydantic import ValidationError
 
 from perkins.config import PerkinsConfig
+from perkins.session import start_session, stop_session
 from perkins.validation import (
     StartupValidationError,
     validate_cliplin_acd,
@@ -36,8 +37,11 @@ def _load_config(path: Path) -> PerkinsConfig:
 
 
 def _start_background_session(config: PerkinsConfig) -> str:
-    """Placeholder: starts the Master + Watcher in the background and returns a session ID."""
-    raise NotImplementedError("Background session startup not yet implemented")
+    """
+    Create the session directory structure and return a session ID.
+    Master + Watcher process startup is not yet implemented.
+    """
+    return start_session(config)
 
 
 @app.command()
@@ -80,11 +84,18 @@ def start(
 
 @app.command()
 def stop(
-    session_id: Optional[str] = typer.Argument(None, help="Session ID to stop. Stops all if omitted."),
-    all: bool = typer.Option(False, "--all", help="Stop all running sessions."),
+    session_id: str = typer.Argument(..., help="Session ID to stop."),
 ) -> None:
-    """Stop a running Perkins session."""
-    raise NotImplementedError("Not yet implemented")
+    """Stop a running Perkins session gracefully."""
+    config_path = Path("perkins.yaml")
+    try:
+        config = _load_config(config_path)
+    except ValidationError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
+
+    stop_session(session_id, config)
+    typer.echo(f"Session {session_id} stopped.")
 
 
 @app.command()
