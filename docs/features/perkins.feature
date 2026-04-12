@@ -199,7 +199,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
   # ── CRASH RECOVERY ─────────────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Perkins recovers after a crash and restores session state
     Given a previous session "perk_a3f9c2" was interrupted with:
       | issue | status         |
@@ -218,7 +219,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:complementary
   # why: perkins-flow-lifecycle TDR requires human confirmation before worktree deletion when cleanup_worktree_on is issue_closed
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Watcher detects closed issue and prompts human before deleting worktree
     Given cleanup_worktree_on is set to "issue_closed" in perkins.yaml
     And a completed flow for issue #42 with a worktree at .worktrees/issue-42/
@@ -230,7 +232,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
   # ── PERKINS SUMMARY ────────────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: perkins summary produces a human-readable project context snapshot
     Given a cliplin-initialized repository with features, TDRs, and ADRs indexed in the context store
     When the developer runs `perkins summary`
@@ -241,7 +244,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:complementary
   # why: --json is the machine-readable contract for federated orchestration described in the intent doc
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: perkins summary --json produces a stable machine-readable project description
     Given a cliplin-initialized repository with context indexed in the cliplin context store
     When the developer runs `perkins summary --json`
