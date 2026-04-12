@@ -12,7 +12,8 @@ import yaml
 from pydantic import ValidationError
 
 from perkins.config import PerkinsConfig
-from perkins.session import start_session, stop_session
+from perkins.runtime_launcher import start_background_session
+from perkins.session import stop_session
 from perkins.validation import (
     StartupValidationError,
     validate_cliplin_acd,
@@ -38,10 +39,10 @@ def _load_config(path: Path) -> PerkinsConfig:
 
 def _start_background_session(config: PerkinsConfig) -> str:
     """
-    Create the session directory structure and return a session ID.
-    Master + Watcher process startup is not yet implemented.
+    Launch the asyncio runtime as a detached subprocess and return the session ID.
+    Governed by: docs/tdrs/perkins-runtime-process.md
     """
-    return start_session(config)
+    return start_background_session(config, config_path=Path("perkins.yaml"))
 
 
 @app.command()
