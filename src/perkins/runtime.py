@@ -14,6 +14,7 @@ import yaml
 
 from perkins.agent import handle_agent_exit, spawn_agent
 from perkins.config import PerkinsConfig
+from perkins.master import MasterOrchestrator
 
 
 # ── Shutdown event ────────────────────────────────────────────────────────────
@@ -114,8 +115,8 @@ async def watcher_loop(
 
 async def runtime_main(session_id: str, config: PerkinsConfig) -> None:
     """
-    Top-level runtime coroutine. Starts stub MCP server, stub Master Orchestrator,
-    and the Watcher loop. Awaits shutdown then cancels all tasks.
+    Top-level runtime coroutine. Starts the MCP server and Master Orchestrator,
+    then the Watcher loop. Awaits shutdown then cancels all tasks.
     """
     state_dir = Path(config.session.state_dir)
     session_dir = state_dir / "sessions" / session_id
@@ -128,13 +129,11 @@ async def runtime_main(session_id: str, config: PerkinsConfig) -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    # Stub: MCP server
-    print(f"perkins-master MCP server started [stub] on port {config.mcp_server.port}", flush=True)
+    # Start MCP server and Master Orchestrator
+    master = MasterOrchestrator(session_id, config)
+    mcp_task = master.start()
 
-    # Stub: Master Orchestrator
-    print(f"Master Orchestrator started [stub] for session {session_id}", flush=True)
-
-    # Start Watcher loop
+    # Start Watcher loop (after MCP server task is created)
     watcher_task = asyncio.create_task(watcher_loop(session_id, config))
 
     # Await shutdown
@@ -142,6 +141,7 @@ async def runtime_main(session_id: str, config: PerkinsConfig) -> None:
     await shutdown.wait()
 
     # Cancel all tasks with a timeout
+    mcp_task.cancel()
     watcher_task.cancel()
     try:
         await asyncio.wait_for(asyncio.shield(watcher_task), timeout=5.0)

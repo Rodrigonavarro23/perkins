@@ -1,7 +1,7 @@
 """
 Unit tests for perkins runtime module — covers:
   - Scenario: Runtime entry point writes PID file and starts the event loop
-  - Scenario: runtime_main starts stub MCP server, stub Master, and Watcher loop
+  - Scenario: MCP server starts as asyncio task on the configured port (runtime integration)
 """
 from __future__ import annotations
 
@@ -79,48 +79,29 @@ def test_runtime_deletes_pid_file_on_clean_exit(tmp_path):
     assert not pid_file.exists()
 
 
-# ── Scenario: runtime_main starts stub MCP server, stub Master, Watcher loop ──
+# ── Scenario: MCP server starts as asyncio task (runtime integration) ─────────
 
-def test_runtime_main_logs_mcp_stub(tmp_path, capsys):
+def test_runtime_main_instantiates_master_orchestrator(tmp_path):
+    """runtime_main must instantiate MasterOrchestrator with session_id and config."""
     config = _make_config(tmp_path)
     session_id = "perk_112233"
     session_dir = tmp_path / ".perkins" / "sessions" / session_id
     session_dir.mkdir(parents=True)
 
     async def _run():
-        with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
-            with patch("perkins.runtime._get_shutdown_event") as mock_evt:
-                evt = asyncio.Event()
-                evt.set()
-                mock_evt.return_value = evt
-                await runtime_main(session_id, config)
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master) as mock_cls:
+            with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
+                with patch("perkins.runtime._get_shutdown_event") as mock_evt:
+                    evt = asyncio.Event()
+                    evt.set()
+                    mock_evt.return_value = evt
+                    await runtime_main(session_id, config)
+            mock_cls.assert_called_once_with(session_id, config)
+            mock_master.start.assert_called_once()
 
     asyncio.run(_run())
-
-    captured = capsys.readouterr()
-    assert "perkins-master MCP server started [stub]" in captured.out
-    assert "7331" in captured.out
-
-
-def test_runtime_main_logs_master_stub(tmp_path, capsys):
-    config = _make_config(tmp_path)
-    session_id = "perk_112233"
-    session_dir = tmp_path / ".perkins" / "sessions" / session_id
-    session_dir.mkdir(parents=True)
-
-    async def _run():
-        with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
-            with patch("perkins.runtime._get_shutdown_event") as mock_evt:
-                evt = asyncio.Event()
-                evt.set()
-                mock_evt.return_value = evt
-                await runtime_main(session_id, config)
-
-    asyncio.run(_run())
-
-    captured = capsys.readouterr()
-    assert "Master Orchestrator started [stub]" in captured.out
-    assert session_id in captured.out
 
 
 def test_runtime_main_creates_watcher_loop_task(tmp_path):

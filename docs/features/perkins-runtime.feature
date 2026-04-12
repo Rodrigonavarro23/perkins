@@ -59,8 +59,9 @@ Feature: Perkins Runtime Integration
   # ── RUNTIME EVENT LOOP ─────────────────────────────────────────────────────
 
   @type:main
-  @status:implemented
+  @status:deprecated
   @changed:2026-04-12
+  @reason:Replaced by real MasterOrchestrator — see docs/features/perkins-master-orchestrator.feature
   Scenario: runtime_main starts stub MCP server, stub Master, and Watcher loop
     Given a valid session_id and PerkinsConfig
     When runtime_main is called
