@@ -47,7 +47,8 @@ Feature: Perkins Runtime Integration
   # ── RUNTIME ENTRY POINT ────────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Runtime entry point writes PID file and starts the event loop
     Given a session_id and config_path passed as CLI arguments to perkins.runtime
     When the runtime module is executed
@@ -58,7 +59,8 @@ Feature: Perkins Runtime Integration
   # ── RUNTIME EVENT LOOP ─────────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: runtime_main starts stub MCP server, stub Master, and Watcher loop
     Given a valid session_id and PerkinsConfig
     When runtime_main is called
