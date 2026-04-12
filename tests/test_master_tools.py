@@ -42,7 +42,9 @@ def _setup(tmp_path: Path, issue_id: str = "42", **flow_kwargs):
     flow_path = flows_dir / f"{issue_id}.json"
     flow_path.write_text(flow.model_dump_json(indent=2), encoding="utf-8")
 
-    master = MasterOrchestrator(session_id, config)
+    # Pass _graph to bypass real create_deep_agent() — these tests only exercise
+    # report_progress and get_task_context, not the graph itself.
+    master = MasterOrchestrator(session_id, config, _graph=MagicMock())
     return master, session_dir, flow_path
 
 

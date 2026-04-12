@@ -43,14 +43,17 @@ def test_runtime_writes_pid_file(tmp_path):
     pid_file = session_dir / "runtime.pid"
 
     async def _run():
-        with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
-            with patch("perkins.runtime._get_shutdown_event") as mock_evt:
-                evt = asyncio.Event()
-                evt.set()
-                mock_evt.return_value = evt
-                # Suppress unlink so the file survives for assertion
-                with patch.object(Path, "unlink"):
-                    await runtime_main(session_id, config)
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
+            with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
+                with patch("perkins.runtime._get_shutdown_event") as mock_evt:
+                    evt = asyncio.Event()
+                    evt.set()
+                    mock_evt.return_value = evt
+                    # Suppress unlink so the file survives for assertion
+                    with patch.object(Path, "unlink"):
+                        await runtime_main(session_id, config)
 
     asyncio.run(_run())
 
@@ -66,12 +69,15 @@ def test_runtime_deletes_pid_file_on_clean_exit(tmp_path):
     session_dir.mkdir(parents=True)
 
     async def _run():
-        with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
-            with patch("perkins.runtime._get_shutdown_event") as mock_evt:
-                evt = asyncio.Event()
-                evt.set()
-                mock_evt.return_value = evt
-                await runtime_main(session_id, config)
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
+            with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
+                with patch("perkins.runtime._get_shutdown_event") as mock_evt:
+                    evt = asyncio.Event()
+                    evt.set()
+                    mock_evt.return_value = evt
+                    await runtime_main(session_id, config)
 
     asyncio.run(_run())
 
@@ -112,13 +118,16 @@ def test_runtime_main_creates_watcher_loop_task(tmp_path):
     session_dir.mkdir(parents=True)
 
     async def _run():
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         mock_watcher = AsyncMock()
-        with patch("perkins.runtime.watcher_loop", mock_watcher):
-            with patch("perkins.runtime._get_shutdown_event") as mock_evt:
-                evt = asyncio.Event()
-                evt.set()
-                mock_evt.return_value = evt
-                await runtime_main(session_id, config)
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
+            with patch("perkins.runtime.watcher_loop", mock_watcher):
+                with patch("perkins.runtime._get_shutdown_event") as mock_evt:
+                    evt = asyncio.Event()
+                    evt.set()
+                    mock_evt.return_value = evt
+                    await runtime_main(session_id, config)
         # Verify watcher_loop was invoked with the right session_id
         mock_watcher.assert_called_once_with(session_id, config)
 

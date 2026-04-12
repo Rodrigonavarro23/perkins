@@ -92,7 +92,8 @@ Feature: Perkins Master Orchestrator
   # ── MASTER ORCHESTRATOR ───────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Master Orchestrator is created with SqliteSaver and session thread_id
     Given a session_id "perk_a1b2c3" and a valid PerkinsConfig
     When the Master Orchestrator is initialized
@@ -101,7 +102,8 @@ Feature: Perkins Master Orchestrator
     And all invoke() calls pass version="v2"
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: perkins chat resumes interrupted Master with human answer
     Given the Master has an interrupt payload on the interrupt_queue for issue "42"
     When the developer runs perkins chat, views the question, and provides the answer "Use the Repository pattern"
