@@ -1,0 +1,26 @@
+repos:
+  - repo: local
+    hooks:
+      - id: acd-commit-validator
+        name: ACD Commit Validator (artifacts + tests + traceability)
+        language: script
+        entry: scripts/acd-validate.sh
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+        description: >
+          Validates staged changes against ACD rules: artifact consistency (AC-1–4),
+          test coverage (UD-1), and traceability (TR-1–2). Blocks the commit on
+          any FAIL violation. Infra-only commits (no production .go/.ts/.py files)
+          pass AC-1, UD-1, and TR-1 automatically.
+
+      - id: acd-commit-msg-validator
+        name: ACD Commit Message Validator (UD-2)
+        language: script
+        entry: scripts/acd-validate-msg.sh
+        pass_filenames: true
+        stages: [commit-msg]
+        description: >
+          Validates that the commit message contains the required ACD fields:
+          ACD-session, Artifacts, and Scenarios. Use [skip-UD-2] in the message
+          body to exempt infra-only commits.
