@@ -112,7 +112,8 @@ Feature: Perkins Master Orchestrator
     And the ask_master tool handler returns the answer to the dev sub-agent
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Context compaction triggers at threshold and stores snapshot
     Given the Master's context token usage has reached the compaction_threshold from perkins.yaml
     When the Master's compaction node runs

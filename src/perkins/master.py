@@ -71,6 +71,10 @@ class MasterOrchestrator:
         self.answer_queues: dict[str, asyncio.Queue] = {}
         self._mcp: FastMCP | None = None
 
+        # Context compaction state (perkins-agent-orchestration TDR)
+        self._context_tokens: int = 0
+        self._max_context_tokens: int = 200_000  # Claude 3 context window
+
     # ── MCP server ────────────────────────────────────────────────────────────
 
     def _build_mcp(self) -> FastMCP:
@@ -109,10 +113,19 @@ class MasterOrchestrator:
         If the graph interrupts (Master cannot answer from context), places the interrupt
         payload on interrupt_queues[issue_id] and awaits an answer on answer_queues[issue_id].
         Once the answer arrives (from perkins chat), resumes the graph and returns the answer.
+
+        Context compaction: before invoking, loads any existing compaction snapshot into the
+        context. After invoking, estimates token usage and triggers compaction if the threshold
+        is reached (perkins-agent-orchestration TDR).
         """
         graph = self._graph
         if graph is None:
             raise RuntimeError("Master graph not initialized — call set_graph() first")
+
+        # Rebuild context from latest compaction snapshot if one exists
+        snapshot = self._load_latest_snapshot()
+        if snapshot:
+            context = f"[COMPACTION SNAPSHOT]\n{snapshot}\n\n[CURRENT CONTEXT]\n{context}"
 
         cfg = {"configurable": {"thread_id": self._session_id}}
         result = await asyncio.to_thread(
@@ -121,6 +134,12 @@ class MasterOrchestrator:
             cfg,
             version="v2",
         )
+
+        # Accumulate approximate token usage and compact if threshold reached
+        answer_text = result.get("answer", "") if isinstance(result, dict) else ""
+        self._context_tokens += len(question) + len(context) + len(answer_text)
+        if self._should_compact():
+            await self.compact_context()
 
         if "__interrupt__" in result:
             payload = result["__interrupt__"][0].value
@@ -142,6 +161,111 @@ class MasterOrchestrator:
             return answer
 
         return result.get("answer", "")
+
+    # ── context compaction ────────────────────────────────────────────────────
+
+    def _should_compact(self) -> bool:
+        """Return True when accumulated token usage has reached the configured threshold."""
+        threshold = self._config.session.compaction_threshold
+        return self._context_tokens >= int(self._max_context_tokens * threshold)
+
+    def _load_latest_snapshot(self) -> str | None:
+        """Return content of the most recent compaction snapshot, or None if absent."""
+        session_dir = (
+            Path(self._config.session.state_dir)
+            / "sessions"
+            / self._session_id
+        )
+        compaction_dir = session_dir / "compaction"
+        if not compaction_dir.exists():
+            return None
+        snapshots = sorted(compaction_dir.glob("snapshot-*.md"))
+        if not snapshots:
+            return None
+        return snapshots[-1].read_text(encoding="utf-8")
+
+    async def compact_context(self) -> Path:
+        """
+        Write a compaction snapshot summarising current state and return its path.
+
+        Snapshot sections (perkins-agent-orchestration TDR):
+          - Project Context
+          - Active Flow States
+          - Pending Escalations
+          - Recent Events
+
+        Resets the token counter so the next compaction cycle starts fresh.
+        """
+        state_dir = Path(self._config.session.state_dir)
+        session_dir = state_dir / "sessions" / self._session_id
+        compaction_dir = session_dir / "compaction"
+        compaction_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+        snapshot_path = compaction_dir / f"snapshot-{timestamp}.md"
+
+        # Collect active flow states
+        flows_dir = session_dir / "flows"
+        flow_states: list[FlowState] = []
+        if flows_dir.exists():
+            for fp in sorted(flows_dir.glob("*.json")):
+                try:
+                    flow_states.append(
+                        FlowState.model_validate_json(fp.read_text(encoding="utf-8"))
+                    )
+                except Exception:
+                    pass
+
+        # Collect pending escalations (non-empty interrupt queues)
+        pending_escalations: list[str] = [
+            f"- Issue #{iid}: pending escalation"
+            for iid, q in self.interrupt_queues.items()
+            if not q.empty()
+        ]
+
+        # Collect recent events from all flow progress entries (last 5 per flow)
+        recent_events: list[str] = []
+        for flow in flow_states:
+            for entry in flow.progress_entries[-5:]:
+                recent_events.append(
+                    f"- [#{flow.issue_id}] {entry.timestamp}: {entry.message}"
+                )
+
+        lines = [
+            "# Perkins Compaction Snapshot",
+            "",
+            "## Project Context",
+            f"- Repo: {self._config.repo.name} ({self._config.repo.github_repo})",
+            f"- Description: {self._config.repo.description}",
+            f"- Session: {self._session_id}",
+            "",
+            "## Active Flow States",
+        ]
+        if flow_states:
+            for flow in flow_states:
+                lines.append(f"- Issue #{flow.issue_id}: {flow.status.value}")
+        else:
+            lines.append("- (none)")
+
+        lines += ["", "## Pending Escalations"]
+        if pending_escalations:
+            lines += pending_escalations
+        else:
+            lines.append("- (none)")
+
+        lines += ["", "## Recent Events"]
+        if recent_events:
+            lines += recent_events
+        else:
+            lines.append("- (none)")
+
+        snapshot_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Reset token counter after compaction
+        self._context_tokens = 0
+
+        logger.info("Compaction snapshot written to %s", snapshot_path)
+        return snapshot_path
 
     # ── report_progress ───────────────────────────────────────────────────────
 
