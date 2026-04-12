@@ -103,9 +103,12 @@ def stop(
 @app.command()
 def chat(
     session_id: str = typer.Argument(..., help="Session ID to attach to."),
+    watch: bool = typer.Option(False, "--watch", help="Poll until a question is available."),
 ) -> None:
     """Open an interactive chat with a running Perkins session."""
-    raise NotImplementedError("Not yet implemented")
+    import asyncio
+    from perkins.chat_client import run_chat
+    asyncio.run(run_chat(session_id, watch=watch))
 
 
 @app.command()

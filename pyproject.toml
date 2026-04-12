@@ -16,6 +16,10 @@ dependencies = [
     #   langchain-anthropic>=0.3.0
     #   langgraph-checkpoint-sqlite
     #   mcp>=1.0.0               — perkins-master MCP server
+    "mcp>=1.27.0",
+    "deepagents>=0.5.2",
+    "langgraph-checkpoint-sqlite>=3.0.3",
+    "aiohttp>=3.9.0",
 ]
 
 [project.optional-dependencies]
