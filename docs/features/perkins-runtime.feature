@@ -101,7 +101,8 @@ Feature: Perkins Runtime Integration
   # ── GRACEFUL SHUTDOWN ──────────────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Runtime shuts down cleanly on SIGTERM
     Given a running runtime with an active watcher_loop task
     When the runtime process receives SIGTERM
@@ -113,7 +114,8 @@ Feature: Perkins Runtime Integration
   # ── perkins stop — RUNTIME TERMINATION ────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: perkins stop sends SIGTERM to the runtime process via PID file
     Given a running session with a PID file at .perkins/sessions/{session-id}/runtime.pid
     When the developer runs `perkins stop {session-id}`
@@ -123,7 +125,8 @@ Feature: Perkins Runtime Integration
 
   @type:edge
   # why: perkins-runtime-process TDR requires stop to handle missing PID gracefully; e.g. after a SIGKILL
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: perkins stop handles a missing PID file without error
     Given a session where the runtime.pid file does not exist
     When the developer runs `perkins stop {session-id}`

@@ -1,15 +1,20 @@
 """
 Session lifecycle management for Perkins.
-Governed by: docs/tdrs/perkins-serialization.md, docs/tdrs/perkins-flow-lifecycle.md
+Governed by: docs/tdrs/perkins-serialization.md, docs/tdrs/perkins-flow-lifecycle.md,
+             docs/tdrs/perkins-runtime-process.md
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
+import signal
 from pathlib import Path
 
 from perkins.config import PerkinsConfig
 from perkins.models import SessionState, SessionStatus
+
+logger = logging.getLogger(__name__)
 
 
 def generate_session_id() -> str:
@@ -43,12 +48,21 @@ def start_session(config: PerkinsConfig) -> str:
 
 def stop_session(session_id: str, config: PerkinsConfig) -> None:
     """
-    Gracefully stop a session: update its status to completed.
-    Flow files already on disk are preserved as-is.
+    Gracefully stop a session: send SIGTERM to the runtime process (if running),
+    wait up to 5 seconds for it to exit, then update session status to completed.
     """
     state_dir = Path(config.session.state_dir)
     session_dir = state_dir / "sessions" / session_id
     session_file = session_dir / "session.json"
+
+    # Send SIGTERM to the runtime process via PID file
+    pid_file = session_dir / "runtime.pid"
+    if pid_file.exists():
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        os.kill(pid, signal.SIGTERM)
+        os.waitpid(pid, 0)
+    else:
+        logger.warning("runtime.pid not found for session %s — runtime may have already exited", session_id)
 
     state = SessionState.model_validate_json(session_file.read_text(encoding="utf-8"))
     state.status = SessionStatus.completed
