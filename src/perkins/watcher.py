@@ -74,22 +74,31 @@ class Watcher:
         issues = json.loads(result.stdout)
         return [str(issue["number"]) for issue in issues]
 
-    def poll_once(self, active_flows_count: int) -> None:
+    def poll_once(self, active_flows_count: int) -> list:
         """
         Perform a single poll: fetch open issues, dispatch any not yet tracked.
-        On gh CLI failure, log to recovery.log and return without crashing.
+        Returns the list of FlowState objects that were immediately dispatched
+        (status == dispatched). Queued flows are not included — the caller
+        must drain the DispatchQueue separately.
+        On gh CLI failure, log to recovery.log and return [] without crashing.
         """
+        from perkins.models import FlowStatus
+
         try:
             issue_ids = self.fetch_open_issues()
         except subprocess.CalledProcessError as exc:
             self._log_error(
                 f"gh CLI failed (exit {exc.returncode}): {exc.stderr.strip() if exc.stderr else 'no stderr'}"
             )
-            return
+            return []
 
+        dispatched = []
         for issue_id in issue_ids:
             if self._registry.can_dispatch(issue_id):
-                self._dispatcher.dispatch(issue_id, self._session_dir, active_flows_count)
+                flow = self._dispatcher.dispatch(issue_id, self._session_dir, active_flows_count)
+                if flow.status == FlowStatus.dispatched:
+                    dispatched.append(flow)
+        return dispatched
 
     def _log_error(self, message: str) -> None:
         recovery_log = self._session_dir / "recovery.log"

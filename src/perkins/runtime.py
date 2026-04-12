@@ -12,6 +12,7 @@ from pathlib import Path
 
 import yaml
 
+from perkins.agent import handle_agent_exit, spawn_agent
 from perkins.config import PerkinsConfig
 
 
@@ -36,13 +37,76 @@ def _handle_signal(signum: int, frame: object) -> None:
 
 # ── Stub components ───────────────────────────────────────────────────────────
 
-async def watcher_loop(session_id: str, config: PerkinsConfig) -> None:
+async def watcher_loop(
+    session_id: str,
+    config: PerkinsConfig,
+    *,
+    _watcher=None,
+    _dispatch_queue=None,
+    _initial_active_flows: int = 0,
+) -> None:
     """
     Watcher polling loop — connects Watcher, FlowDispatcher, and spawn_agent.
-    Implemented in Session 3.
+    On each iteration:
+      1. Calls watcher.poll_once() → returns dispatched FlowStates.
+      2. Spawns an asyncio task for each dispatched issue.
+      3. Drains the DispatchQueue for any queued issues that fit within max_concurrent.
+
+    Parameters prefixed with _ are for test injection only.
     """
+    from perkins.dispatcher import DispatchQueue, FlowDispatcher
+    from perkins.watcher import IssueRegistry, Watcher
+
+    state_dir = Path(config.session.state_dir)
+    session_dir = state_dir / "sessions" / session_id
+    worktrees_dir = Path(".worktrees")
+
+    if _watcher is None:
+        registry = IssueRegistry()
+        queue: DispatchQueue = _dispatch_queue if _dispatch_queue is not None else DispatchQueue()
+        dispatcher = FlowDispatcher(registry, queue, config.dev_agents.max_concurrent)
+        watcher = Watcher(registry, dispatcher, session_dir, config.repo.github_repo)
+    else:
+        watcher = _watcher
+        queue = _dispatch_queue if _dispatch_queue is not None else DispatchQueue()
+
+    active = [_initial_active_flows]
     shutdown = _get_shutdown_event()
+
+    def _make_done_callback(issue_id: str):
+        def _on_done(task: asyncio.Task) -> None:
+            active[0] -= 1
+            if not task.cancelled():
+                try:
+                    exit_code = task.result()
+                    handle_agent_exit(session_dir, issue_id, exit_code or 0)
+                except Exception:
+                    handle_agent_exit(session_dir, issue_id, 1)
+        return _on_done
+
     while not shutdown.is_set():
+        dispatched_flows = watcher.poll_once(active[0])
+
+        for flow in dispatched_flows:
+            worktree_path = worktrees_dir / f"issue-{flow.issue_id}"
+            active[0] += 1
+            task = asyncio.create_task(
+                spawn_agent(flow.issue_id, session_dir, worktree_path, config)
+            )
+            task.add_done_callback(_make_done_callback(flow.issue_id))
+
+        # Drain queued issues into available concurrency slots
+        while queue.size() > 0 and active[0] < config.dev_agents.max_concurrent:
+            issue_id = queue.dequeue()
+            if issue_id is None:
+                break
+            worktree_path = worktrees_dir / f"issue-{issue_id}"
+            active[0] += 1
+            task = asyncio.create_task(
+                spawn_agent(issue_id, session_dir, worktree_path, config)
+            )
+            task.add_done_callback(_make_done_callback(issue_id))
+
         await asyncio.sleep(config.watcher.poll_interval_seconds)
 
 

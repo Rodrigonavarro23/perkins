@@ -69,7 +69,8 @@ Feature: Perkins Runtime Integration
     And a watcher_loop asyncio task is created and begins polling
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Watcher loop dispatches a new issue and spawns a dev sub-agent task
     Given the runtime is running and the Watcher detects a new issue #42
     When watcher_loop calls poll_once() and the issue is not in the registry
@@ -79,7 +80,8 @@ Feature: Perkins Runtime Integration
 
   @type:complementary
   # why: completes the dispatch cycle — queued issues must be drained after each poll so they are not stranded indefinitely
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Watcher loop drains the dispatch queue after each poll when slots are free
     Given the runtime is running with one queued issue #55 and a now-free concurrency slot
     When watcher_loop completes a poll_once() cycle
@@ -88,7 +90,8 @@ Feature: Perkins Runtime Integration
 
   @type:edge
   # why: perkins-flow-lifecycle TDR defines max_concurrent; queued issues must not spawn a task when at the limit
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Watcher loop queues an issue when concurrency limit is reached and does not spawn
     Given the runtime is running with active flows equal to dev_agents.max_concurrent
     When the Watcher dispatches a new issue #56
