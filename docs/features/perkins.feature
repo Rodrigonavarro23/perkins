@@ -36,6 +36,17 @@ Feature: Perkins Autonomous Multi-Agent Development System
     And the perkins-master MCP server begins listening on the configured port
     And the process exits immediately (non-blocking)
 
+  @type:main
+  @status:implemented
+  @changed:2026-04-12
+  Scenario: perkins start --watch starts the session and enters interactive chat
+    Given a cliplin-initialized repository with a valid perkins.yaml
+    And all startup validation checks pass
+    When the developer runs `perkins start --watch`
+    Then a session ID is printed to stdout
+    And the CLI immediately enters perkins chat --watch mode for that session
+    And the developer can answer pending questions without running a separate command
+
   @type:edge
   # why: perkins-serialization TDR requires validation to exit with code 1 on invalid config; invalid config is the primary startup failure mode
   @status:implemented
