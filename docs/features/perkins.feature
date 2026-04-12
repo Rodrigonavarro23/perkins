@@ -81,7 +81,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
   # ── ISSUE WATCHING AND DISPATCH ────────────────────────────────────────────
 
   @type:main
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Watcher detects a new GitHub issue and dispatches it to the Master
     Given a running Perkins session
     And a new GitHub issue #42 titled "Implement refund endpoint" is created in the repository
@@ -104,7 +105,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:edge
   # why: perkins-github-operations TDR requires watcher to continue polling on gh CLI failure; crashing would halt all issue processing
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Watcher continues polling when gh CLI returns a non-zero exit
     Given a running Perkins session
     When the Watcher polls GitHub and the gh CLI returns exit code 1 with a network error
@@ -129,7 +131,8 @@ Feature: Perkins Autonomous Multi-Agent Development System
 
   @type:edge
   # why: perkins-flow-lifecycle TDR defines max_concurrent; dispatched issues must queue rather than spawn when the limit is reached
-  @status:new
+  @status:implemented
+  @changed:2026-04-12
   Scenario: Master queues a dispatched issue when the concurrency limit is reached
     Given a running Perkins session where active flows equal dev_agents.max_concurrent
     When a new issue #55 is dispatched to the Master
