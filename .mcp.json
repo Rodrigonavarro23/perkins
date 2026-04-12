@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cliplin-context": {
+      "command": "uv",
+      "args": [
+        "run",
+        "cliplin",
+        "mcp"
+      ]
+    }
+  }
+}

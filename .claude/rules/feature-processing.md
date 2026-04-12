@@ -1,0 +1,255 @@
+---
+alwaysApply: true
+---
+
+## Feature File Processing Rules
+
+### When User Requests Feature Implementation
+
+When a user asks to implement a feature or work with `.feature` files:
+
+0. **Context Loading Phase (MANDATORY FIRST STEP)**:
+   - **CRITICAL**: Before starting ANY feature analysis or implementation, you MUST load context from the Cliplin MCP server 'cliplin-context'
+   - **Use MCP tools to query collections**: Use the Cliplin MCP tools (e.g. context_query_documents) to load relevant context from ALL collections. **Prefer TDR over TS4**: query `technical-decision-records` first for technical rules; use `tech-specs` (TS4) as fallback and, if you only find TS4, suggest migrating to TDR (see docs/business/tdr.md).
+     * Query `business-and-architecture` collection to load ADRs and business documentation
+     * Query `technical-decision-records` collection first for technical specifications and implementation rules (TDR)
+     * Query `tech-specs` collection for legacy TS4 specs if needed (deprecated; suggest migrating to TDR)
+     * Query `features` collection to load related or dependent features
+     * Query `uisi` collection to load UI/UX requirements if applicable
+   - **Query strategy**: Use semantic queries based on the feature domain, entities, and use cases to retrieve relevant context
+   - **Never proceed without loading context**: Do NOT start feature analysis or implementation until you have queried and loaded the relevant context from the context store (via Cliplin MCP)
+   - **Technical Intent Discovery (MANDATORY before writing @constraints)**: After loading domain-specific context, infer the technical operations this feature's implementation will require. For each identified operation, query `technical-decision-records` to discover rules that govern that specific technical pattern — even if those TDRs are not mentioned in the feature file.
+     * Reading/writing files → query `"file operations encoding"`
+     * Reading environment variables or config → query `"environment variables configuration"`
+     * HTTP calls to external APIs → query `"HTTP client library"`
+     * Database interactions → query `"database access patterns"`
+     * Cryptography or password hashing → query `"cryptography hashing library"`
+     * Spawning subprocesses → query `"subprocess execution"`
+     * Parsing/serializing data formats (YAML, JSON, CSV) → query `"YAML JSON parsing"`
+     * CLI argument parsing → query `"CLI argument parser"`
+     * Add any relevant TDRs found to `governed_by` in the `@constraints` block — these are real constraints for this feature
+   - **Context update check**: After loading context, verify if any context files need reindexing:
+     * Run `cliplin reindex --dry-run` to check if context files are up to date
+     * If context files are outdated, ask user for confirmation before reindexing
+     * Only proceed with feature work after ensuring context is current and loaded
+   - **Write @constraints block (MANDATORY planning gate)**: After loading context (domain + technical intent discovery) and before any analysis or implementation, write the `@constraints` block at the top of the feature file (before `Feature:`). Use the following format:
+     ```
+     @constraints
+     # governed_by:
+     #   - docs/tdrs/<relevant-tdr>.md
+     #   - docs/adrs/<relevant-adr>.md
+     # conflicts:
+     #   - "<description of any contradiction between governing docs>"
+     # gaps:
+     #   - "<description of any assumed behavior not explicitly specified>"
+     ```
+     * `governed_by`: list every TDR, ADR, or business doc loaded from the context store that actively constrains this feature
+     * `conflicts`: list any contradictions detected between two or more governing documents
+     * `gaps`: list any behaviors assumed but not explicitly covered by any governing document
+     * If a scenario has constraints different from the feature-level ones, add a scenario-level `@constraints` block immediately before that `Scenario:` line (same format, indented to scenario level)
+     * Do not start implementation until the `@constraints` block is written and visible in the feature file
+   - **Generate implementation prompt**: Ask the user if they want you to run `cliplin feature apply <feature-filepath>` to generate a structured implementation prompt that includes the feature content and implementation instructions. If the user confirms, execute the command and use the generated prompt as part of your implementation workflow
+
+1. **Feature Analysis Phase**:
+   - Read and analyze the `.feature` file from the `docs/features/` directory
+   - **Read existing `@constraints` block if present**: If the feature file already has a `@constraints` block, extract and use it as the starting point — do not ignore it or overwrite it without reviewing its content first. Update it if new conflicts or gaps are discovered during analysis.
+   - Identify all scenarios (Given-When-Then steps)
+   - **Analyze scenario status tags**: For each scenario, identify its current status based on tags:
+     * `@status:new` - New scenario that needs implementation
+     * `@status:pending` - Scenario pending implementation
+     * `@status:implemented` - Scenario fully implemented and working
+     * `@status:deprecated` - Scenario deprecated, should not be updated, only maintained
+     * `@status:modified` - Scenario that has been modified and may need re-implementation
+     * `@changed:YYYY-MM-DD` - Date when scenario was last changed
+     * `@reason:<description>` - Reason for status change or modification
+   - **Filter scenarios by status**: Only work on scenarios that are NOT deprecated:
+     * Skip scenarios tagged with `@status:deprecated` during implementation
+     * Focus on scenarios with `@status:new`, `@status:pending`, or `@status:modified`
+     * Maintain deprecated scenarios as-is without modifications
+   - Extract business rules and acceptance criteria
+   - Identify domain entities, use cases, and boundaries
+   - **Use loaded context**: Apply the context loaded from the context store (via Cliplin MCP) in phase 0 to inform your analysis:
+     * Use business rules from `business-and-architecture` collection
+     * Apply technical constraints from `technical-decision-records` (TDR) first, then `tech-specs` (TS4) if needed; if you only have TS4, suggest migrating to TDR
+     * Consider dependencies from related features in `features` collection
+     * Incorporate UI/UX requirements from `uisi` collection if applicable
+
+2. **Detailed Implementation Plan Creation**:
+   Create a comprehensive plan that includes:
+   
+   **a) Architecture Analysis**:
+   - **Use loaded context**: Apply the context already loaded from the context store (via Cliplin MCP) in phase 0
+   - Use ADRs from `business-and-architecture` collection to understand existing architecture decisions
+   - Apply technical constraints and patterns from `technical-decision-records` (TDR) first, then `tech-specs` (TS4); if you encounter TS4, suggest migrating to TDR
+   - Identify which domain layer components are needed (entities, value objects, use cases)
+   - Determine required ports (interfaces) following hexagonal architecture
+   - Identify adapters needed (repositories, external services, etc.)
+   - Map feature scenarios to use cases
+   - Ensure consistency with existing patterns documented in the loaded context
+   - If additional context is needed, query the context store collections again (via Cliplin MCP) with more specific queries
+   
+   **b) Business Logic Implementation**:
+   - List all business logic components to implement
+   - Identify validation rules and business constraints
+   - Define domain models and their relationships
+   - Specify error handling requirements
+   
+   **c) Unit Test Strategy**:
+   - For each business logic component, create unit test specifications
+   - Test each use case independently with mocked dependencies
+   - Use test fixtures and setup utilities as appropriate for the language/framework
+   - Mock all external dependencies to isolate unit tests
+   - Test edge cases, validation rules, and error conditions
+   - Aim for minimum 80% code coverage for business logic if no other coverage rule is present in TDR or TS4 documents
+   
+   **d) BDD Test Strategy**:
+   - Map each active scenario (non-deprecated) from the `.feature` file to BDD test steps
+   - Implement step definitions that exercise the full feature flow
+   - Ensure BDD tests validate end-to-end feature behavior
+   - BDD tests should use real adapters (not mocks) to validate integration
+   - **Exclude deprecated scenarios**: Do not create or update BDD tests for scenarios tagged with `@status:deprecated`
+   
+   **e) Implementation Checklist**:
+   - [ ] Domain entities and value objects
+   - [ ] Use case implementations
+   - [ ] Unit tests for business logic
+   - [ ] BDD/acceptance tests
+   - [ ] Error handling and validation
+   - [ ] Type definitions/annotations and documentation
+
+3. **Implementation Execution**:
+   - Follow the plan step by step
+   - **Work on active scenarios only**: Implement only scenarios that are NOT deprecated
+   - Implement domain logic first
+   - Write unit tests alongside business logic implementation following Test-Driven Development (TDD) principles
+   - Write BDD tests that validate the active scenarios (non-deprecated)
+   - Ensure all tests pass before marking scenarios as complete
+
+4. **Feature Completion**:
+   - Once implementation is complete and tests pass for a scenario:
+     * **Add scenario-level tags**: Add tags directly above each scenario (not at feature level):
+       - `@status:implemented` - When a scenario is fully implemented and tested
+       - `@status:new` - When creating a new scenario (remove after implementation)
+       - `@status:modified` - When modifying an existing scenario (remove after re-implementation)
+       - `@changed:YYYY-MM-DD` - Date when scenario was last changed
+       - `@reason:<description>` - Optional reason for status change
+     * **Tag format example**:
+       ```
+       @status:implemented
+       @changed:2024-01-15
+       Scenario: Example scenario name
+         Given ...
+       ```
+     * **Do NOT modify deprecated scenarios**: Leave scenarios with `@status:deprecated` unchanged
+     * Ensure the feature file is properly formatted and readable
+     * All code and tests must be traceable back to the specific scenarios
+     * **Reindex the updated feature file**: Run `cliplin reindex docs/features/feature-name.feature` to update the context store
+     * If you created or modified any context files (ADRs, TS4, business docs), reindex them as well
+     * This ensures the context remains synchronized with the implementation
+
+### When User Requests Feature Modification
+
+When a user asks to modify an existing feature:
+
+0. **Context Loading Phase (MANDATORY FIRST STEP)**:
+   - **CRITICAL**: Before starting ANY feature modification analysis, you MUST load context from the Cliplin MCP server 'cliplin-context'
+   - **Use MCP tools to query collections**: Use the Cliplin MCP tools (e.g. context_query_documents) to load relevant context:
+     * Query `features` collection to load the feature being modified and related features that might be affected
+     * Query `business-and-architecture` collection to load business rules and ADRs that might impact the change
+     * Query `tech-specs` collection to load technical constraints that must be considered
+     * Query `uisi` collection if UI/UX changes are involved
+   - **Query strategy**: Use semantic queries based on the feature domain, entities, and use cases to retrieve relevant context
+   - **Never proceed without loading context**: Do NOT start modification analysis until you have queried and loaded the relevant context from the context store (via Cliplin MCP)
+   - **Technical Intent Discovery (MANDATORY before updating @constraints)**: After loading domain-specific context, infer the technical operations the modified implementation will require. For each identified operation, query `technical-decision-records` to discover rules that govern that specific technical pattern.
+     * Reading/writing files → query `"file operations encoding"`
+     * Reading environment variables or config → query `"environment variables configuration"`
+     * HTTP calls to external APIs → query `"HTTP client library"`
+     * Database interactions → query `"database access patterns"`
+     * Any other technical operation the modification will introduce
+     * Add any relevant TDRs found to `governed_by` in the `@constraints` block
+   - **Context update check**: After loading context, verify if any context files need reindexing:
+     * Run `cliplin reindex --dry-run` to check if context files are up to date
+     * If context files are outdated, ask user for confirmation before reindexing
+     * Only proceed with feature modification after ensuring context is current and loaded
+   - **Update @constraints block**: After loading context (domain + technical intent discovery), review the existing `@constraints` block (if present) and update it to reflect the current governing docs, any new conflicts, and any new or resolved gaps. If no block exists, write one before starting modification analysis.
+   - **Generate implementation prompt**: Ask the user if they want you to run `cliplin feature apply <feature-filepath>` to generate a structured implementation prompt that includes the feature content and implementation instructions. If the user confirms, execute the command and use the generated prompt as part of your modification workflow
+
+1. **Impact Analysis**:
+   - **Use loaded context**: Apply the context already loaded from the context store (via Cliplin MCP) in phase 0
+   - **Identify scenarios to modify**: Analyze which specific scenarios need changes:
+     * Review scenario tags to understand current status
+     * Identify scenarios tagged with `@status:modified` or scenarios that need modification
+     * **Exclude deprecated scenarios**: Do not modify scenarios tagged with `@status:deprecated`
+   - Identify all features, components, and context files that depend on or relate to the scenarios being modified
+   - Analyze the scope of changes required based on the loaded context
+   - Check for breaking changes that might affect other features using the loaded feature dependencies
+   - If additional context is needed, query the context store collections again (via Cliplin MCP) with more specific queries
+
+2. **Modification Process**:
+   - Follow the same phases as feature implementation (Analysis, Planning, Implementation, Completion)
+   - **Work on specific scenarios**: Only modify the scenarios that need changes, not the entire feature
+   - Ensure backward compatibility unless explicitly breaking changes are required
+   - Update related context files if business rules or technical specs change
+   - **Update scenario tags**: When modifying a scenario:
+     * If modifying an existing implemented scenario, add `@status:modified` tag
+     * Add `@changed:YYYY-MM-DD` tag with the modification date
+     * Add `@reason:<description>` tag explaining why the scenario was modified
+     * After re-implementation, change `@status:modified` to `@status:implemented`
+     * **Example**:
+       ```
+       @status:modified
+       @changed:2024-01-15
+       @reason:Updated to support new authentication flow
+       Scenario: User login
+         Given ...
+       ```
+   - **Deprecate scenarios if needed**: If a scenario should no longer be updated:
+     * Add `@status:deprecated` tag to the scenario
+     * Add `@changed:YYYY-MM-DD` and `@reason:<description>` tags
+     * Keep the scenario in the file for reference but do not modify it further
+
+3. **Post-Modification**:
+   - Reindex all modified context files using `cliplin reindex`
+   - Verify that related features still work correctly
+   - **Verify scenario status**: Ensure all modified scenarios have appropriate tags:
+     * Implemented scenarios should have `@status:implemented`
+     * Deprecated scenarios should have `@status:deprecated` and should not be modified
+     * Modified scenarios should be updated to `@status:implemented` after completion
+   - Update documentation if needed
+
+### Scenario Status Tags Reference
+
+When working with feature files, use the following tags at the **scenario level** (not feature level):
+
+- **`@status:new`** - New scenario that needs implementation. Remove this tag after implementation.
+- **`@status:pending`** - Scenario pending implementation. Default status for new scenarios.
+- **`@status:implemented`** - Scenario fully implemented, tested, and working.
+- **`@status:deprecated`** - Scenario deprecated. Should NOT be updated or modified, only maintained for reference.
+- **`@status:modified`** - Scenario that has been modified and may need re-implementation. Change to `@status:implemented` after completion.
+- **`@changed:YYYY-MM-DD`** - Date when scenario was last changed (format: YYYY-MM-DD).
+- **`@reason:<description>`** - Optional reason for status change or modification.
+
+**Tag placement**: Tags should be placed directly above the `Scenario:` line:
+```
+@status:implemented
+@changed:2024-01-15
+@reason:Updated authentication flow
+Scenario: User login with OAuth
+  Given ...
+```
+
+**Important rules**:
+- Tags are **scenario-specific**, not feature-level
+- **Never modify** scenarios tagged with `@status:deprecated`
+- Always update `@changed` and `@status` tags when modifying scenarios
+- Use `@reason` tag to document why changes were made
+
+### @constraints Block Reference
+
+The `@constraints` tag and its associated YAML comments are a feature-level or scenario-level planning artifact. They record the governing documents, conflicts, and gaps identified during context loading — before implementation begins.
+
+- **Feature-level**: place `@constraints` before `Feature:` with YAML comment lines (`# key: value`)
+- **Scenario-level**: place `@constraints` immediately before the `Scenario:` line (indented), only when that scenario has constraints different from the feature-level ones
+- **Fields**: `governed_by` (list of file paths), `conflicts` (list of strings), `gaps` (list of strings)
+- **Format**: valid Gherkin — BDD test runners ignore it; the AI reads it as structured context
+- See docs/tdrs/feature-constraints-format.md for the full specification
