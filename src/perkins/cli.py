@@ -12,6 +12,7 @@ import yaml
 from pydantic import ValidationError
 
 from perkins.config import PerkinsConfig
+from perkins.init import run_init
 from perkins.runtime_launcher import start_background_session
 from perkins.session import stop_session
 from perkins.validation import (
@@ -127,7 +128,16 @@ def flow(
 @app.command()
 def init() -> None:
     """Configure Perkins for this project (run once per project)."""
-    raise NotImplementedError("Not yet implemented")
+    try:
+        validate_gh_installed()
+        validate_gh_authenticated()
+        validate_cliplin_project()
+        validate_cliplin_acd()
+    except StartupValidationError as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
+
+    run_init()
 
 
 @app.command()
