@@ -40,19 +40,22 @@ def test_runtime_sets_shutdown_event_on_sigterm(tmp_path):
     shutdown_was_set = []
 
     async def _run():
-        with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
-            with patch("perkins.runtime._get_shutdown_event") as mock_get_evt:
-                evt = asyncio.Event()
-                mock_get_evt.return_value = evt
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
+            with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
+                with patch("perkins.runtime._get_shutdown_event") as mock_get_evt:
+                    evt = asyncio.Event()
+                    mock_get_evt.return_value = evt
 
-                # Send SIGTERM to ourselves after a short delay
-                async def _send_sigterm():
-                    await asyncio.sleep(0.05)
-                    os.kill(os.getpid(), signal.SIGTERM)
+                    # Send SIGTERM to ourselves after a short delay
+                    async def _send_sigterm():
+                        await asyncio.sleep(0.05)
+                        os.kill(os.getpid(), signal.SIGTERM)
 
-                asyncio.create_task(_send_sigterm())
-                await runtime_main(session_id, config)
-                shutdown_was_set.append(evt.is_set())
+                    asyncio.create_task(_send_sigterm())
+                    await runtime_main(session_id, config)
+                    shutdown_was_set.append(evt.is_set())
 
     asyncio.run(_run())
     assert shutdown_was_set == [True]
@@ -75,17 +78,20 @@ def test_runtime_cancels_watcher_task_on_shutdown(tmp_path):
             raise
 
     async def _run():
-        with patch("perkins.runtime.watcher_loop", side_effect=_slow_watcher):
-            with patch("perkins.runtime._get_shutdown_event") as mock_get_evt:
-                evt = asyncio.Event()
-                mock_get_evt.return_value = evt
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
+            with patch("perkins.runtime.watcher_loop", side_effect=_slow_watcher):
+                with patch("perkins.runtime._get_shutdown_event") as mock_get_evt:
+                    evt = asyncio.Event()
+                    mock_get_evt.return_value = evt
 
-                async def _trigger_shutdown():
-                    await asyncio.sleep(0.05)
-                    evt.set()
+                    async def _trigger_shutdown():
+                        await asyncio.sleep(0.05)
+                        evt.set()
 
-                asyncio.create_task(_trigger_shutdown())
-                await runtime_main(session_id, config)
+                    asyncio.create_task(_trigger_shutdown())
+                    await runtime_main(session_id, config)
 
     asyncio.run(_run())
     assert cancelled_tasks == [session_id]
@@ -99,17 +105,20 @@ def test_runtime_deletes_pid_file_after_sigterm(tmp_path):
     session_dir.mkdir(parents=True)
 
     async def _run():
-        with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
-            with patch("perkins.runtime._get_shutdown_event") as mock_get_evt:
-                evt = asyncio.Event()
-                mock_get_evt.return_value = evt
+        mock_master = MagicMock()
+        mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
+        with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
+            with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
+                with patch("perkins.runtime._get_shutdown_event") as mock_get_evt:
+                    evt = asyncio.Event()
+                    mock_get_evt.return_value = evt
 
-                async def _trigger():
-                    await asyncio.sleep(0.05)
-                    evt.set()
+                    async def _trigger():
+                        await asyncio.sleep(0.05)
+                        evt.set()
 
-                asyncio.create_task(_trigger())
-                await runtime_main(session_id, config)
+                    asyncio.create_task(_trigger())
+                    await runtime_main(session_id, config)
 
     asyncio.run(_run())
     assert not (session_dir / "runtime.pid").exists()

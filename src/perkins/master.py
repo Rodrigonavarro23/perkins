@@ -8,10 +8,13 @@ import asyncio
 import datetime
 import json
 import logging
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from deepagents import create_deep_agent
+from langgraph.checkpoint.sqlite import SqliteSaver
 from mcp.server.fastmcp import FastMCP
 
 from perkins.config import PerkinsConfig
@@ -43,7 +46,27 @@ class MasterOrchestrator:
     ) -> None:
         self._session_id = session_id
         self._config = config
-        self._graph = _graph  # injected in tests; real graph wired in Session 3
+
+        if _graph is None:
+            # Wire real LangGraph graph with SqliteSaver checkpointer
+            # (perkins-agent-orchestration TDR: SqliteSaver at graph.db, thread_id=session_id)
+            db_path = (
+                Path(config.session.state_dir)
+                / "sessions"
+                / session_id
+                / "graph.db"
+            )
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            checkpointer = SqliteSaver(conn)
+            checkpointer.setup()
+            self._graph = create_deep_agent(
+                model=config.orchestrator.model,
+                checkpointer=checkpointer,
+            )
+        else:
+            self._graph = _graph
+
         self.interrupt_queues: dict[str, asyncio.Queue] = {}
         self.answer_queues: dict[str, asyncio.Queue] = {}
         self._mcp: FastMCP | None = None
@@ -96,6 +119,7 @@ class MasterOrchestrator:
             graph.invoke,
             {"question": question, "issue_id": issue_id, "context": context},
             cfg,
+            version="v2",
         )
 
         if "__interrupt__" in result:
@@ -113,6 +137,7 @@ class MasterOrchestrator:
                 graph.invoke,
                 Command(resume={"answer": answer}),
                 cfg,
+                version="v2",
             )
             return answer
 
