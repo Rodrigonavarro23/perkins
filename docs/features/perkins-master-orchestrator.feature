@@ -12,6 +12,8 @@
 # escalation_triggers:
 #   - "deepagents create_deep_agent() API signature differs from what the TDR assumes at implementation time — stop and verify before wiring"
 #   - "mcp SDK server startup API differs from expected usage — stop and verify the correct asyncio integration pattern"
+#   - "create_deep_agent() mcp_servers parameter API differs from expected usage — stop and verify before wiring"
+#   - "deepagents system prompt parameter name differs from expected — stop and verify the correct kwarg before wiring"
 Feature: Perkins Master Orchestrator
   As the Perkins runtime,
   I want a real Master Orchestrator (deepagents + LangGraph) and MCP server (mcp SDK)
@@ -88,6 +90,99 @@ Feature: Perkins Master Orchestrator
     Then the error is logged to recovery.log
     And the tool returns the current flow state with issue_body set to null
     And the MCP server continues running without raising an exception
+
+  # ── CLIPLIN ENVIRONMENT INHERITANCE ──────────────────────────────────────
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master loads .mcp.json and passes cliplin-context MCP as mcp_servers
+    Given a project root with a valid .mcp.json containing a cliplin-context MCP server entry
+    And a valid PerkinsConfig with dev_agents.default_tool "claude-code"
+    When the Master Orchestrator is initialized
+    Then .mcp.json is read from the project root
+    And create_deep_agent() is called with mcp_servers containing the cliplin-context MCP server config
+    And the Master can invoke context_query_documents during graph execution
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master loads claude-code rules from .claude/rules/ into system prompt
+    Given a project root with .claude/rules/ containing context.md, context-protocol-loading.md,
+      feature-first-flow.md, and feature-processing.md
+    And perkins.yaml has dev_agents.default_tool set to "claude-code"
+    When the Master Orchestrator is initialized
+    Then all *.md files in .claude/rules/ are read and concatenated
+    And create_deep_agent() is called with the concatenated rules as the system prompt prefix
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master loads gemini rules from .gemini/ into system prompt
+    Given a project root with .gemini/ containing one or more *.md rule files
+    And perkins.yaml has dev_agents.default_tool set to "gemini"
+    When the Master Orchestrator is initialized
+    Then all *.md files in .gemini/ are read and concatenated
+    And create_deep_agent() is called with the concatenated rules as the system prompt prefix
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master loads cursor rules from .cursor/rules/ into system prompt
+    Given a project root with .cursor/rules/ containing one or more *.mdc rule files
+    And perkins.yaml has dev_agents.default_tool set to "cursor"
+    When the Master Orchestrator is initialized
+    Then all *.mdc files in .cursor/rules/ are read and concatenated
+    And create_deep_agent() is called with the concatenated rules as the system prompt prefix
+
+  @type:edge
+  # why: cursor has a legacy single-file format; TDR requires fallback to .cursorrules when .cursor/rules/ is absent
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master falls back to .cursorrules when .cursor/rules/ is absent
+    Given a project root with no .cursor/rules/ directory but a .cursorrules file present
+    And perkins.yaml has dev_agents.default_tool set to "cursor"
+    When the Master Orchestrator is initialized
+    Then the content of .cursorrules is read
+    And create_deep_agent() is called with that content as the system prompt prefix
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master queries cliplin context before deciding to interrupt on ask_master
+    Given the Master is initialized with cliplin-context MCP tools
+    And a dev sub-agent calls ask_master with issue_id "42"
+      and question "Which error handling pattern does this repo use?"
+    When the Master processes the ask_master call
+    Then the Master calls context_query_documents on "technical-decision-records"
+      with the question verbatim as query_text
+    And if a relevant result is found, the Master returns the answer directly
+      without triggering interrupt()
+    And if no result is found in technical-decision-records, the Master queries
+      the "features" collection before deciding to interrupt
+
+  @type:edge
+  # why: .mcp.json absent means no cliplin tools — Master must degrade gracefully per TDR rule
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master falls back to interrupt-only mode when .mcp.json is absent
+    Given a project root with no .mcp.json file
+    When the Master Orchestrator is initialized
+    Then initialization succeeds without raising an exception
+    And a warning is logged: "cliplin-context MCP unavailable — Master will escalate all unknown questions to human"
+    And ask_master calls always trigger interrupt() when no MCP tools are available
+
+  @type:edge
+  # why: rules dir absent means no system prompt rules — Master must degrade gracefully per TDR rule
+  @status:implemented
+  @changed:2026-04-19
+  Scenario: Master initializes without rules when AI tool rules directory is absent
+    Given a project root with no .claude/rules/ directory
+    And perkins.yaml has dev_agents.default_tool set to "claude-code"
+    When the Master Orchestrator is initialized
+    Then initialization succeeds without raising an exception
+    And a warning is logged indicating the rules directory was not found
+    And create_deep_agent() is called without a system prompt prefix
 
   # ── MASTER ORCHESTRATOR ───────────────────────────────────────────────────
 

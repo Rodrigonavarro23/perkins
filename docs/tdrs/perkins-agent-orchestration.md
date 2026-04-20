@@ -34,3 +34,54 @@ summary: "The Master Orchestrator is a deepagents agent using LangGraph with Sql
 - On approaching the threshold defined in `perkins.yaml` (`session.compaction_threshold`, default `0.80`), the Master summarizes its state and stores it at `.perkins/sessions/{session-id}/compaction/snapshot-{timestamp}.md`.
 - Context is rebuilt from: project context > active flow states > pending escalations > recent events.
 - Compaction is a LangGraph node triggered by the Master's token usage check, not an external signal.
+
+## Cliplin environment inheritance
+
+The Master Orchestrator MUST inherit the full cliplin environment of the project at
+initialization time. This ensures the Master answers dev sub-agent questions using
+the same context and rules that a human developer would have available.
+
+### MCP servers
+
+- The Master reads `.mcp.json` from the project root on initialization.
+- MCP server entries are converted to `StdioConnection` dicts and passed to
+  `MultiServerMCPClient` from `langchain-mcp-adapters`.
+- `await client.get_tools()` returns `list[BaseTool]`; these are passed as
+  `tools=[...]` to `create_deep_agent()`.
+- `.mcp.json` format expected: `{"mcpServers": {"name": {"command": "...", "args": [...]}}}`.
+- If `.mcp.json` is absent or malformed, a warning is logged and initialization
+  continues without MCP tools (the Master will escalate all unknown questions to
+  the human via `interrupt()`).
+
+### AI tool rules
+
+The Master detects the configured AI tool from `perkins.yaml`
+(`dev_agents.default_tool`) and loads the corresponding rules into the Master's
+system prompt:
+
+| `default_tool`  | Rules directory        | Files loaded                          |
+|-----------------|------------------------|---------------------------------------|
+| `claude-code`   | `.claude/rules/`       | all `*.md` files                      |
+| `gemini`        | `.gemini/`             | all `*.md` files                      |
+| `cursor`        | `.cursor/rules/`       | all `*.mdc` files (newer format)      |
+|                 | `.cursorrules`         | single file (legacy, if dir absent)   |
+
+- Rules are concatenated and passed as the system prompt prefix to
+  `create_deep_agent()`.
+- For `cursor`: prefer `.cursor/rules/*.mdc`; fall back to `.cursorrules` if the
+  directory does not exist.
+- If neither rules source exists for the configured tool, a warning is logged and
+  initialization continues without rules.
+- Rules are loaded once at startup; changes to rule files require a session restart.
+
+### Context queries on ask_master
+
+When the Master receives an `ask_master` call:
+
+1. Query `technical-decision-records` collection using the question verbatim as
+   `query_text` via `context_query_documents`.
+2. If no result found, query `features` collection.
+3. If a result is found in either collection, include it in the graph input and
+   let the LangGraph node decide if it is sufficient to answer.
+4. If the graph node cannot answer (returns `__interrupt__`), escalate to human
+   via `interrupt()` as before.

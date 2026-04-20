@@ -76,6 +76,7 @@ def test_master_mcp_task_created_before_watcher_loop(tmp_path):
     async def _run():
         mock_mcp_task = asyncio.ensure_future(asyncio.sleep(0))
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.side_effect = lambda: (call_order.append("mcp") or mock_mcp_task)
 
         async def _watcher_coro(*a, **kw):
@@ -216,3 +217,162 @@ def test_ask_master_does_not_populate_interrupt_queue_on_direct_answer(tmp_path)
 
     asyncio.run(_run())
     assert "42" not in master.interrupt_queues
+
+
+# ── Scenario: Master queries cliplin context before deciding to interrupt ─────
+
+
+def _make_cliplin_tool(name: str = "context_query_documents", result: str = "") -> AsyncMock:
+    """Return a mock BaseTool whose ainvoke returns result."""
+    tool = AsyncMock()
+    tool.name = name
+    tool.ainvoke = AsyncMock(return_value=result)
+    return tool
+
+
+def test_ask_master_queries_tdr_collection_first(tmp_path):
+    """context_query_documents must be called with 'technical-decision-records' first."""
+    config = _make_config(tmp_path)
+    mock_tool = _make_cliplin_tool(result="TDR content about error handling")
+    master = MasterOrchestrator("perk_test", config, _graph=_mock_graph_direct())
+    master._mcp_tools = [mock_tool]
+
+    async def _run():
+        return await master._ask_master("42", "Which error handling pattern?", "")
+
+    asyncio.run(_run())
+
+    first_call = mock_tool.ainvoke.call_args_list[0]
+    assert first_call.args[0]["collection"] == "technical-decision-records"
+    assert first_call.args[0]["query_texts"] == ["Which error handling pattern?"]
+
+
+def test_ask_master_returns_tdr_result_directly_without_graph(tmp_path):
+    """When TDR has a result, _ask_master returns it without invoking the graph."""
+    config = _make_config(tmp_path)
+    mock_tool = _make_cliplin_tool(result="Use the Result monad pattern")
+    mock_graph = _mock_graph_direct("graph answer")
+    master = MasterOrchestrator("perk_test", config, _graph=mock_graph)
+    master._mcp_tools = [mock_tool]
+
+    result_holder: list[str] = []
+
+    async def _run():
+        result = await master._ask_master("42", "Which pattern?", "")
+        result_holder.append(result)
+
+    asyncio.run(_run())
+
+    assert result_holder == ["Use the Result monad pattern"]
+    mock_graph.invoke.assert_not_called()
+
+
+def test_ask_master_does_not_trigger_interrupt_when_tdr_has_result(tmp_path):
+    """No interrupt_queue entry when cliplin TDR answers the question."""
+    config = _make_config(tmp_path)
+    mock_tool = _make_cliplin_tool(result="relevant TDR answer")
+    master = MasterOrchestrator("perk_test", config, _graph=_mock_graph_direct())
+    master._mcp_tools = [mock_tool]
+
+    async def _run():
+        await master._ask_master("42", "Q?", "")
+
+    asyncio.run(_run())
+    assert "42" not in master.interrupt_queues
+
+
+def test_ask_master_queries_features_when_tdr_returns_nothing(tmp_path):
+    """When TDR returns empty, context_query_documents is called on 'features' next."""
+    config = _make_config(tmp_path)
+
+    call_collections: list[str] = []
+
+    async def _ainvoke(inputs):
+        call_collections.append(inputs["collection"])
+        # TDR returns empty, features returns content
+        if inputs["collection"] == "technical-decision-records":
+            return ""
+        return "feature scenario content"
+
+    mock_tool = AsyncMock()
+    mock_tool.name = "context_query_documents"
+    mock_tool.ainvoke = _ainvoke
+
+    master = MasterOrchestrator("perk_test", config, _graph=_mock_graph_direct())
+    master._mcp_tools = [mock_tool]
+
+    asyncio.run(master._ask_master("42", "Q?", ""))
+
+    assert call_collections == ["technical-decision-records", "features"]
+
+
+def test_ask_master_returns_features_result_directly(tmp_path):
+    """When TDR is empty but features has a result, return it without invoking graph."""
+    config = _make_config(tmp_path)
+
+    async def _ainvoke(inputs):
+        if inputs["collection"] == "technical-decision-records":
+            return ""
+        return "feature: scenario content"
+
+    mock_tool = AsyncMock()
+    mock_tool.name = "context_query_documents"
+    mock_tool.ainvoke = _ainvoke
+
+    mock_graph = _mock_graph_direct("graph answer")
+    master = MasterOrchestrator("perk_test", config, _graph=mock_graph)
+    master._mcp_tools = [mock_tool]
+
+    result = asyncio.run(master._ask_master("42", "Q?", ""))
+
+    assert result == "feature: scenario content"
+    mock_graph.invoke.assert_not_called()
+
+
+def test_ask_master_falls_through_to_graph_when_no_cliplin_result(tmp_path):
+    """When both TDR and features return empty, graph is invoked normally."""
+    config = _make_config(tmp_path)
+
+    async def _ainvoke(inputs):
+        return ""  # both collections return nothing
+
+    mock_tool = AsyncMock()
+    mock_tool.name = "context_query_documents"
+    mock_tool.ainvoke = _ainvoke
+
+    mock_graph = _mock_graph_direct("graph answer")
+    master = MasterOrchestrator("perk_test", config, _graph=mock_graph)
+    master._mcp_tools = [mock_tool]
+
+    result = asyncio.run(master._ask_master("42", "Q?", ""))
+
+    assert result == "graph answer"
+    mock_graph.invoke.assert_called_once()
+
+
+def test_ask_master_falls_through_to_interrupt_when_no_cliplin_result(tmp_path):
+    """When cliplin returns nothing, interrupt path still works normally."""
+    config = _make_config(tmp_path)
+    payload = {"type": "ask_master", "issue_id": "42", "question": "Q?", "context": ""}
+
+    async def _ainvoke(inputs):
+        return ""
+
+    mock_tool = AsyncMock()
+    mock_tool.name = "context_query_documents"
+    mock_tool.ainvoke = _ainvoke
+
+    mock_graph = _mock_graph_interrupt(payload)
+    master = MasterOrchestrator("perk_test", config, _graph=mock_graph)
+    master._mcp_tools = [mock_tool]
+
+    async def _run():
+        async def _provide_answer():
+            await asyncio.sleep(0.05)
+            await master.answer_queues["42"].put("Use Repository")
+
+        asyncio.create_task(_provide_answer())
+        return await master._ask_master("42", "Q?", "")
+
+    result = asyncio.run(_run())
+    assert result == "Use Repository"

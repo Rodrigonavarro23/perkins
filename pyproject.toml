@@ -20,6 +20,7 @@ dependencies = [
     "deepagents>=0.5.2",
     "langgraph-checkpoint-sqlite>=3.0.3",
     "aiohttp>=3.9.0",
+    "langchain-mcp-adapters>=0.2.2",
 ]
 
 [project.optional-dependencies]

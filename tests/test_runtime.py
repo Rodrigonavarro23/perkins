@@ -44,6 +44,7 @@ def test_runtime_writes_pid_file(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
             with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
@@ -70,6 +71,7 @@ def test_runtime_deletes_pid_file_on_clean_exit(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
             with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
@@ -96,6 +98,7 @@ def test_runtime_main_instantiates_master_orchestrator(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master) as mock_cls:
             with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
@@ -119,6 +122,7 @@ def test_runtime_main_creates_watcher_loop_task(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         mock_watcher = AsyncMock()
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):

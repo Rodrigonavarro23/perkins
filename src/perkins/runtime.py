@@ -129,8 +129,9 @@ async def runtime_main(session_id: str, config: PerkinsConfig) -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    # Start MCP server and Master Orchestrator
+    # Initialize Master (loads cliplin MCP tools + AI tool rules) then start MCP server
     master = MasterOrchestrator(session_id, config)
+    await master.initialize(project_root=Path("."))
     mcp_task = master.start()
 
     # Start Watcher loop (after MCP server task is created)

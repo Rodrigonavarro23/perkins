@@ -42,18 +42,23 @@ def _mock_graph_interrupt(payload: dict) -> MagicMock:
 
 # ── Scenario: Master Orchestrator created with SqliteSaver and session thread_id ─
 
-def test_master_calls_create_deep_agent_with_sqlite_saver(tmp_path):
-    """MasterOrchestrator.__init__ must call create_deep_agent() with a SqliteSaver checkpointer."""
+@pytest.mark.asyncio
+async def test_master_calls_create_deep_agent_with_sqlite_saver(tmp_path):
+    """initialize() must call create_deep_agent() with a SqliteSaver checkpointer."""
     from langgraph.checkpoint.sqlite import SqliteSaver
+    from unittest.mock import AsyncMock
 
     config = _make_config(tmp_path)
     session_id = "perk_a1b2c3"
     session_dir = tmp_path / ".perkins" / "sessions" / session_id
     session_dir.mkdir(parents=True)
 
-    with patch("perkins.master.create_deep_agent") as mock_create:
+    with patch("perkins.master.create_deep_agent") as mock_create, \
+         patch("perkins.master.load_mcp_tools", new=AsyncMock(return_value=[])), \
+         patch("perkins.master.load_rules", return_value=None):
         mock_create.return_value = MagicMock()
-        MasterOrchestrator(session_id, config)
+        master = MasterOrchestrator(session_id, config)
+        await master.initialize(project_root=tmp_path)
 
     mock_create.assert_called_once()
     call_kwargs = mock_create.call_args.kwargs
@@ -61,16 +66,22 @@ def test_master_calls_create_deep_agent_with_sqlite_saver(tmp_path):
     assert isinstance(call_kwargs["checkpointer"], SqliteSaver)
 
 
-def test_master_graph_db_created_at_session_path(tmp_path):
+@pytest.mark.asyncio
+async def test_master_graph_db_created_at_session_path(tmp_path):
     """SqliteSaver checkpointer DB must be at .perkins/sessions/{session_id}/graph.db."""
+    from unittest.mock import AsyncMock
+
     config = _make_config(tmp_path)
     session_id = "perk_a1b2c3"
     session_dir = tmp_path / ".perkins" / "sessions" / session_id
     session_dir.mkdir(parents=True)
     expected_db = session_dir / "graph.db"
 
-    with patch("perkins.master.create_deep_agent", return_value=MagicMock()):
-        MasterOrchestrator(session_id, config)
+    with patch("perkins.master.create_deep_agent", return_value=MagicMock()), \
+         patch("perkins.master.load_mcp_tools", new=AsyncMock(return_value=[])), \
+         patch("perkins.master.load_rules", return_value=None):
+        master = MasterOrchestrator(session_id, config)
+        await master.initialize(project_root=tmp_path)
 
     assert expected_db.exists(), f"graph.db must exist at {expected_db}"
 

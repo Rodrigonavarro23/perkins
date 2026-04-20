@@ -41,6 +41,7 @@ def test_runtime_sets_shutdown_event_on_sigterm(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
             with patch("perkins.runtime.watcher_loop", new=AsyncMock()):
@@ -79,6 +80,7 @@ def test_runtime_cancels_watcher_task_on_shutdown(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
             with patch("perkins.runtime.watcher_loop", side_effect=_slow_watcher):
@@ -106,6 +108,7 @@ def test_runtime_deletes_pid_file_after_sigterm(tmp_path):
 
     async def _run():
         mock_master = MagicMock()
+        mock_master.initialize = AsyncMock()
         mock_master.start.return_value = asyncio.ensure_future(asyncio.sleep(0))
         with patch("perkins.runtime.MasterOrchestrator", return_value=mock_master):
             with patch("perkins.runtime.watcher_loop", new=AsyncMock()):

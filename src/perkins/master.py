@@ -17,6 +17,7 @@ from deepagents import create_deep_agent
 from langgraph.checkpoint.sqlite import SqliteSaver
 from mcp.server.fastmcp import FastMCP
 
+from perkins.cliplin_env import load_mcp_tools, load_rules
 from perkins.config import PerkinsConfig
 from perkins.models import FlowState, ProgressEntry
 from perkins.session import _atomic_write
@@ -46,34 +47,47 @@ class MasterOrchestrator:
     ) -> None:
         self._session_id = session_id
         self._config = config
-
-        if _graph is None:
-            # Wire real LangGraph graph with SqliteSaver checkpointer
-            # (perkins-agent-orchestration TDR: SqliteSaver at graph.db, thread_id=session_id)
-            db_path = (
-                Path(config.session.state_dir)
-                / "sessions"
-                / session_id
-                / "graph.db"
-            )
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(db_path), check_same_thread=False)
-            checkpointer = SqliteSaver(conn)
-            checkpointer.setup()
-            self._graph = create_deep_agent(
-                model=config.orchestrator.model,
-                checkpointer=checkpointer,
-            )
-        else:
-            self._graph = _graph
+        self._graph = _graph  # None until initialize() is called (unless injected)
 
         self.interrupt_queues: dict[str, asyncio.Queue] = {}
         self.answer_queues: dict[str, asyncio.Queue] = {}
         self._mcp: FastMCP | None = None
+        self._mcp_tools: list[Any] = []  # cliplin BaseTool instances; set by initialize()
 
         # Context compaction state (perkins-agent-orchestration TDR)
         self._context_tokens: int = 0
         self._max_context_tokens: int = 200_000  # Claude 3 context window
+
+    async def initialize(self, project_root: Path = Path(".")) -> None:
+        """
+        Load cliplin environment (MCP tools + AI tool rules) and create the LangGraph graph.
+        No-op if _graph was injected at construction time (test injection pattern).
+        Governed by: docs/tdrs/perkins-agent-orchestration.md (Cliplin environment inheritance)
+        """
+        if self._graph is not None:
+            return
+
+        mcp_tools = await load_mcp_tools(project_root / ".mcp.json")
+        self._mcp_tools = mcp_tools
+        rules = load_rules(self._config.dev_agents.default_tool, project_root)
+
+        db_path = (
+            Path(self._config.session.state_dir)
+            / "sessions"
+            / self._session_id
+            / "graph.db"
+        )
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
+        checkpointer.setup()
+
+        self._graph = create_deep_agent(
+            model=self._config.orchestrator.model,
+            tools=mcp_tools if mcp_tools else None,
+            system_prompt=rules,
+            checkpointer=checkpointer,
+        )
 
     # ── MCP server ────────────────────────────────────────────────────────────
 
@@ -105,14 +119,52 @@ class MasterOrchestrator:
 
     # ── ask_master ────────────────────────────────────────────────────────────
 
+    async def _query_cliplin_context(self, question: str) -> str | None:
+        """
+        Query the cliplin context store for relevant context before invoking the graph.
+
+        Strategy (perkins-agent-orchestration TDR — "Context queries on ask_master"):
+          1. Query 'technical-decision-records' with the question verbatim.
+          2. If no result, query 'features'.
+          3. Return the first non-empty result as a string, or None if both collections
+             return nothing.
+
+        Returns None immediately if no context_query_documents tool is loaded.
+        """
+        tool = next(
+            (t for t in self._mcp_tools if "context_query_documents" in t.name),
+            None,
+        )
+        if tool is None:
+            return None
+
+        for collection in ("technical-decision-records", "features"):
+            try:
+                result = await tool.ainvoke(
+                    {"collection": collection, "query_texts": [question]}
+                )
+                if result:
+                    return str(result)
+            except Exception as exc:
+                logger.warning(
+                    "context_query_documents(%r) failed: %s", collection, exc
+                )
+
+        return None
+
     async def _ask_master(self, issue_id: str, question: str, context: str) -> str:
         """
         Handle ask_master tool call.
 
-        Invokes the LangGraph graph. If the graph answers directly, returns the answer.
-        If the graph interrupts (Master cannot answer from context), places the interrupt
-        payload on interrupt_queues[issue_id] and awaits an answer on answer_queues[issue_id].
-        Once the answer arrives (from perkins chat), resumes the graph and returns the answer.
+        Before invoking the LangGraph graph, queries the cliplin context store via
+        context_query_documents (technical-decision-records first, then features).
+        If a relevant result is found, returns it directly without triggering interrupt().
+
+        If cliplin has no answer, invokes the LangGraph graph. If the graph answers
+        directly, returns the answer. If the graph interrupts (Master cannot answer from
+        context), places the interrupt payload on interrupt_queues[issue_id] and awaits
+        an answer on answer_queues[issue_id]. Once the answer arrives (from perkins chat),
+        resumes the graph and returns the answer.
 
         Context compaction: before invoking, loads any existing compaction snapshot into the
         context. After invoking, estimates token usage and triggers compaction if the threshold
@@ -121,6 +173,11 @@ class MasterOrchestrator:
         graph = self._graph
         if graph is None:
             raise RuntimeError("Master graph not initialized — call set_graph() first")
+
+        # Query cliplin context before invoking graph — short-circuit if answer found
+        cliplin_answer = await self._query_cliplin_context(question)
+        if cliplin_answer:
+            return cliplin_answer
 
         # Rebuild context from latest compaction snapshot if one exists
         snapshot = self._load_latest_snapshot()
