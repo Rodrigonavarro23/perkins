@@ -8,10 +8,13 @@ import asyncio
 import datetime
 import json
 import logging
+import os
 import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from deepagents import create_deep_agent
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -156,30 +159,22 @@ class MasterOrchestrator:
         """
         Handle ask_master tool call.
 
-        Before invoking the LangGraph graph, queries the cliplin context store via
-        context_query_documents (technical-decision-records first, then features).
-        If a relevant result is found, returns it directly without triggering interrupt().
-
-        If cliplin has no answer, invokes the LangGraph graph. If the graph answers
-        directly, returns the answer. If the graph interrupts (Master cannot answer from
-        context), places the interrupt payload on interrupt_queues[issue_id] and awaits
-        an answer on answer_queues[issue_id]. Once the answer arrives (from perkins chat),
-        resumes the graph and returns the answer.
-
-        Context compaction: before invoking, loads any existing compaction snapshot into the
-        context. After invoking, estimates token usage and triggers compaction if the threshold
-        is reached (perkins-agent-orchestration TDR).
+        Resolution chain (perkins-agent-orchestration TDR, perkins-search TDR):
+          1. Cliplin context store — return directly if found.
+          2. LangGraph first invocation — return directly if graph answers.
+          3. Web search tier (only when search.enabled=true) — if search returns results,
+             invoke graph again with enriched context; return directly if graph answers.
+          4. Human escalation via interrupt() — payload includes web_search_results field
+             (null when search disabled, failed, or returned nothing).
         """
         graph = self._graph
         if graph is None:
             raise RuntimeError("Master graph not initialized — call set_graph() first")
 
-        # Query cliplin context before invoking graph — short-circuit if answer found
         cliplin_answer = await self._query_cliplin_context(question)
         if cliplin_answer:
             return cliplin_answer
 
-        # Rebuild context from latest compaction snapshot if one exists
         snapshot = self._load_latest_snapshot()
         if snapshot:
             context = f"[COMPACTION SNAPSHOT]\n{snapshot}\n\n[CURRENT CONTEXT]\n{context}"
@@ -192,14 +187,36 @@ class MasterOrchestrator:
             version="v2",
         )
 
-        # Accumulate approximate token usage and compact if threshold reached
         answer_text = result.get("answer", "") if isinstance(result, dict) else ""
         self._context_tokens += len(question) + len(context) + len(answer_text)
         if self._should_compact():
             await self.compact_context()
 
         if "__interrupt__" in result:
-            payload = result["__interrupt__"][0].value
+            web_results: list[dict] | None = None
+
+            if self._config.search.enabled:
+                raw = await self._web_search(question)
+                web_results = raw if raw else None
+
+                if web_results:
+                    enriched = f"{context}\n\n{self._format_search_block(web_results)}"
+                    result2 = await asyncio.to_thread(
+                        graph.invoke,
+                        {"question": question, "issue_id": issue_id, "context": enriched},
+                        cfg,
+                        version="v2",
+                    )
+                    if "__interrupt__" not in result2:
+                        return result2.get("answer", "")
+                    # still interrupted — escalate with search context
+                    base_payload = result2["__interrupt__"][0].value
+                else:
+                    base_payload = result["__interrupt__"][0].value
+            else:
+                base_payload = result["__interrupt__"][0].value
+
+            payload = {**base_payload, "web_search_results": web_results}
 
             if issue_id not in self.interrupt_queues:
                 self.interrupt_queues[issue_id] = asyncio.Queue()
@@ -218,6 +235,65 @@ class MasterOrchestrator:
             return answer
 
         return result.get("answer", "")
+
+    # ── web search ────────────────────────────────────────────────────────────
+
+    async def _web_search(self, question: str) -> list[dict]:
+        """
+        Query configured search provider. Returns normalized [{title, url, snippet}].
+        Returns [] on any error or missing API key (perkins-search TDR).
+        """
+        cfg = self._config.search
+        api_key = os.environ.get(cfg.api_key_env, "")
+        if not api_key:
+            logger.warning("search.api_key_env is unset — skipping web search tier")
+            return []
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                if cfg.provider == "brave":
+                    return await self._search_brave(client, question, api_key, cfg.max_results)
+                return await self._search_serper(client, question, api_key, cfg.max_results)
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            logger.warning("Web search failed: %s", exc)
+            return []
+
+    async def _search_brave(
+        self, client: httpx.AsyncClient, question: str, api_key: str, max_results: int
+    ) -> list[dict]:
+        resp = await client.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers={"X-Subscription-Token": api_key},
+            params={"q": question, "count": max_results},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return [
+            {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("description", "")}
+            for r in data.get("web", {}).get("results", [])
+        ]
+
+    async def _search_serper(
+        self, client: httpx.AsyncClient, question: str, api_key: str, max_results: int
+    ) -> list[dict]:
+        resp = await client.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": api_key},
+            json={"q": question, "num": max_results},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return [
+            {"title": r.get("title", ""), "url": r.get("link", ""), "snippet": r.get("snippet", "")}
+            for r in data.get("organic", [])
+        ]
+
+    @staticmethod
+    def _format_search_block(results: list[dict]) -> str:
+        lines = ["[WEB SEARCH RESULTS]"]
+        for i, r in enumerate(results, 1):
+            lines.append(f"{i}. {r['title']} — {r['url']}")
+            lines.append(f"   {r['snippet']}")
+        return "\n".join(lines)
 
     # ── context compaction ────────────────────────────────────────────────────
 

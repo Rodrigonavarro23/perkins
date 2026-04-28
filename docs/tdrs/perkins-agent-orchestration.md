@@ -83,5 +83,15 @@ When the Master receives an `ask_master` call:
 2. If no result found, query `features` collection.
 3. If a result is found in either collection, include it in the graph input and
    let the LangGraph node decide if it is sufficient to answer.
-4. If the graph node cannot answer (returns `__interrupt__`), escalate to human
-   via `interrupt()` as before.
+4. If the graph node cannot answer (returns `__interrupt__`) AND `search.enabled=false`
+   (or absent) in `perkins.yaml`, escalate to human via `interrupt()` immediately.
+5. If the graph node cannot answer AND `search.enabled=true` in `perkins.yaml`:
+   - Perform a web search using the question as the query (see `docs/tdrs/perkins-search.md`).
+   - If the search returns results, invoke the graph a second time with the results
+     appended to the context.
+   - If the graph answers on the second invocation → return directly to the sub-agent;
+     do NOT escalate to the human.
+   - If the graph raises `__interrupt__` again after the second invocation, OR if the
+     search failed/returned no results → escalate to human via `interrupt()` with
+     `web_search_results` included in the payload (see `perkins-search.md` for payload
+     structure).

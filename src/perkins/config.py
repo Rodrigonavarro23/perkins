@@ -43,6 +43,13 @@ class SessionConfig(BaseModel):
     max_snapshots_per_session: int = Field(default=10, ge=1)
 
 
+class SearchConfig(BaseModel):
+    enabled: bool = False
+    provider: Literal["brave", "serper"] = "brave"
+    api_key_env: str = "BRAVE_API_KEY"
+    max_results: int = Field(default=5, ge=1, le=10)
+
+
 class TokenOptimizationConfig(BaseModel):
     rtk_enabled: bool = True
 
@@ -54,4 +61,5 @@ class PerkinsConfig(BaseModel):
     watcher: WatcherConfig = Field(default_factory=WatcherConfig)
     mcp_server: MCPServerConfig = Field(default_factory=MCPServerConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
     token_optimization: TokenOptimizationConfig = Field(default_factory=TokenOptimizationConfig)

@@ -6,6 +6,7 @@
 #   - docs/tdrs/perkins-serialization.md
 #   - docs/tdrs/perkins-flow-lifecycle.md
 #   - docs/tdrs/perkins-github-operations.md
+#   - docs/tdrs/perkins-search.md
 # conflicts: []
 # gaps:
 #   - "Answer Agents (deepagents subagents for posting/polling GitHub issues) are out of scope — covered by a separate feature"
@@ -14,6 +15,8 @@
 #   - "mcp SDK server startup API differs from expected usage — stop and verify the correct asyncio integration pattern"
 #   - "create_deep_agent() mcp_servers parameter API differs from expected usage — stop and verify before wiring"
 #   - "deepagents system prompt parameter name differs from expected — stop and verify the correct kwarg before wiring"
+#   - "httpx is not available in the project dependencies at implementation time — stop and add it before wiring the search tier"
+#   - "Brave or Serper API response schema differs from what perkins-search.md assumes — stop and verify result extraction keys before wiring"
 Feature: Perkins Master Orchestrator
   As the Perkins runtime,
   I want a real Master Orchestrator (deepagents + LangGraph) and MCP server (mcp SDK)
@@ -205,6 +208,75 @@ Feature: Perkins Master Orchestrator
     Then invoke is called with Command(resume={"answer": "Use the Repository pattern"}) and version="v2"
     And the answer is placed on the answer_queue for issue "42"
     And the ask_master tool handler returns the answer to the dev sub-agent
+
+  # ── WEB SEARCH RESOLUTION TIER ───────────────────────────────────────────
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-27
+  Scenario: Master resolves ask_master via web search when cliplin context is insufficient
+    Given search.enabled is true in perkins.yaml with provider "brave"
+    And a dev sub-agent calls ask_master with a question the Master cannot answer from cliplin context
+    And the Master graph raises __interrupt__ on the first invocation
+    When the Master performs a web search using the question as query
+    And the search returns at least one result
+    And the Master graph is invoked again with the search results appended to the context
+    And the graph produces a non-interrupt answer on the second invocation
+    Then the Master returns the answer directly to the dev sub-agent
+    And no interrupt payload is placed on the interrupt_queue
+    And the human is not notified
+
+  @type:main
+  @status:implemented
+  @changed:2026-04-28
+  Scenario: Master escalates to human with search context when web search does not resolve the question
+    Given search.enabled is true in perkins.yaml
+    And a dev sub-agent calls ask_master with a question the Master cannot answer
+    And the Master graph raises __interrupt__ on both the initial and post-search invocations
+    When the Master performs a web search and receives results
+    And the graph still raises __interrupt__ after the second invocation with search results
+    Then the interrupt payload placed on interrupt_queue includes web_search_results
+      with the normalized results as a list of {title, url, snippet} objects
+    And the human sees the search results alongside the question in perkins chat
+
+  @type:edge
+  # why: perkins-search TDR requires graceful fallback on any httpx error — search failure must not block the escalation path
+  @status:implemented
+  @changed:2026-04-27
+  Scenario: Master falls back to direct human escalation when web search API call fails
+    Given search.enabled is true in perkins.yaml
+    And a dev sub-agent calls ask_master with a question the Master cannot answer
+    And the Master graph raises __interrupt__ on the first invocation
+    When the web search API call raises an httpx.HTTPStatusError or httpx.TimeoutException
+    Then the error is logged as a warning
+    And the Master proceeds to human escalation without web_search_results
+    And the interrupt payload has web_search_results set to null
+    And the MCP server continues running without raising an exception
+
+  @type:edge
+  # why: perkins-search TDR requires skipping search when api_key_env is unset — prevents silent auth failures
+  @status:implemented
+  @changed:2026-04-28
+  Scenario: Master skips web search and escalates directly when search API key is not configured
+    Given search.enabled is true in perkins.yaml
+    And the environment variable named in search.api_key_env is unset or empty
+    And a dev sub-agent calls ask_master with a question the Master cannot answer
+    When the Master processes the ask_master call
+    Then a warning is logged: "search.api_key_env is unset — skipping web search tier"
+    And the Master proceeds directly to human escalation
+    And web_search_results in the interrupt payload is null
+
+  @type:complementary
+  # why: search.enabled=false is the default — existing interrupt behavior must be provably unaffected when search is off
+  @status:implemented
+  @changed:2026-04-27
+  Scenario: Master behavior is unchanged when search.enabled is false
+    Given search.enabled is false or absent in perkins.yaml
+    And a dev sub-agent calls ask_master with a question the Master cannot answer from context
+    And the Master graph raises __interrupt__
+    Then the interrupt payload is placed on interrupt_queue immediately
+    And no web search is performed
+    And web_search_results in the interrupt payload is null
 
   @type:main
   @status:implemented

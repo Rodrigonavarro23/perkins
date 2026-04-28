@@ -141,7 +141,8 @@ def test_ask_master_puts_payload_on_interrupt_queue(tmp_path):
     assert "42" in master.interrupt_queues
     assert master.interrupt_queues["42"].qsize() == 1
     queued = master.interrupt_queues["42"].get_nowait()
-    assert queued == payload
+    # perkins-search TDR extends payload with web_search_results (null when search disabled)
+    assert queued == {**payload, "web_search_results": None}
 
 
 def test_ask_master_returns_human_answer_after_interrupt(tmp_path):
